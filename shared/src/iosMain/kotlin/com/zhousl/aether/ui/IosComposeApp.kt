@@ -3617,14 +3617,19 @@ fun IosComposeApp(
                     SharedChatScreen(
                     sessions = sessions.map { summary ->
                         val state = sessionStates[summary.id]
-                        summary.copy(
-                            title = state?.title ?: summary.title,
-                            indicator = when {
-                                state?.isWorking == true -> SharedConversationIndicator.Working
-                                state?.hasUnviewedCompletion == true -> SharedConversationIndicator.UnviewedComplete
-                                else -> SharedConversationIndicator.None
-                            },
-                        )
+                        val desiredTitle = state?.title ?: summary.title
+                        val desiredIndicator = when {
+                            state?.isWorking == true -> SharedConversationIndicator.Working
+                            state?.hasUnviewedCompletion == true -> SharedConversationIndicator.UnviewedComplete
+                            else -> SharedConversationIndicator.None
+                        }
+                        // Preserve structural equality: an unconditional copy()
+                        // would rebuild every drawer row on each streaming tick.
+                        if (summary.title == desiredTitle && summary.indicator == desiredIndicator) {
+                            summary
+                        } else {
+                            summary.copy(title = desiredTitle, indicator = desiredIndicator)
+                        }
                     },
                     selectedSessionId = sessionId,
                     composerSessionKey = currentSession.composerKey,
@@ -5864,13 +5869,17 @@ private fun SharedChatScreen(
                                 )
                             }
                             val browserTools = message.sharedBrowserTools()
-                            val browserReplayFrames = message.sharedBrowserReplayFrames()
-                            val storedBrowserState = browserTools.asReversed()
-                                .asSequence()
-                                .map(SharedChatToolInvocation::sharedStoredBrowserDisplayState)
-                                .firstOrNull { state ->
-                                    state.previewPath.isNotBlank() || state.screenshotBase64.isNotBlank()
-                                }
+                            // Parsed once per message instance: each call walks the
+                            // tool list in reverse and JSON-parses full outputs
+                            // (screenshot base64 payloads can be megabytes).
+                            val storedBrowserState = remember(message) {
+                                browserTools.asReversed()
+                                    .asSequence()
+                                    .map(SharedChatToolInvocation::sharedStoredBrowserDisplayState)
+                                    .firstOrNull { state ->
+                                        state.previewPath.isNotBlank() || state.screenshotBase64.isNotBlank()
+                                    }
+                            }
                             val browserState = if (message.isStreaming) {
                                 browserDisplayState
                             } else {
@@ -5882,6 +5891,14 @@ private fun SharedChatScreen(
                                     browserState.previewPath.isNotBlank() ||
                                     browserState.screenshotBase64.isNotBlank()
                                 )
+                            // Only parse screenshot JSON when the card will actually
+                            // render; otherwise every browser-tool message pays for
+                            // full outputJson parsing on each recomposition.
+                            val browserReplayFrames = if (showBrowserCard) {
+                                message.sharedBrowserReplayFrames()
+                            } else {
+                                emptyList()
+                            }
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 if (showBrowserCard) {
                                     SharedBrowserPreviewCard(
@@ -6044,7 +6061,11 @@ private fun SharedChatScreen(
                     chromeAvailable = chromeAvailable,
                     chromeEnabled = chromeEnabled,
                     onChromeSelected = onChromeSelected,
-                    editingMessage = messages.firstOrNull { it.id == editingMessageId },
+                    editingMessage = remember(messages, editingMessageId) {
+                        editingMessageId.takeIf(String::isNotBlank)?.let { id ->
+                            messages.firstOrNull { it.id == id }
+                        }
+                    },
                     showStarterPromptHint = showStarterPromptHint,
                     onDismissStarterPromptHint = onDismissStarterPromptHint,
                     onCancelEdit = onCancelEdit,

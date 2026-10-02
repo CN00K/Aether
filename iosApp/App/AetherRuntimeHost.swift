@@ -1229,6 +1229,16 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     private func readPickedFile(_ url: URL) throws -> (name: String, mimeType: String, data: Data) {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        // Same cap as directory import: an oversized single pick would be
+        // loaded fully into memory and risk a jetsam kill on low-RAM devices.
+        let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? Int.max
+        guard fileSize <= maximumPickedDirectoryEntryBytes else {
+            throw NSError(
+                domain: "com.baimoqilin.aether.file-picker",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "The selected file is too large (\(url.lastPathComponent))."]
+            )
+        }
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
         return (
             url.lastPathComponent,
