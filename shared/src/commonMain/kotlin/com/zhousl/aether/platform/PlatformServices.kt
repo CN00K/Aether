@@ -47,7 +47,7 @@ interface PlatformServices {
 }
 
 object NoOpPlatformServices : PlatformServices {
-    override suspend fun pickFile(imagesOnly: Boolean): PlatformPickedFile? = null
+    override suspend fun pickFile(imagesOnly: Boolean, maximumBytes: Long): PlatformPickedFile? = null
     override fun copyText(text: String): Boolean = false
     override fun shareText(title: String, text: String): Boolean = false
     override fun openUrl(url: String): Boolean = false
