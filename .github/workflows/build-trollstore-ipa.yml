@@ -57,7 +57,7 @@ jobs:
             -derivedDataPath "$derived" \
             CODE_SIGNING_ALLOWED=NO \
             build
-          app_path="$(find "$derived/Build/Products" -maxdepth 2 -name 'Aether.app' | head -1)"
+          app_path="$(find "$derived/Build/Products" -maxdepth 2 -name '*.app' ! -name '*FileProvider*' | head -1)"
           test -n "$app_path"
           out_dir="${RUNNER_TEMP}/ipa-stage"
           rm -rf "$out_dir"

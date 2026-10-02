@@ -78,8 +78,6 @@ val BuiltInAgentSkills: List<BuiltInAgentSkill> = listOf(
             Script files are watched after a successful load, but local `file:` packages are installed into Aether's managed package directory. After changing the source package, call `update_package` so the installed copy is refreshed.
         """.trimIndent() + "\n",
     ),
-)
-
     BuiltInAgentSkill(
         id = "memory",
         actionLabel = "Remember",
@@ -113,8 +111,7 @@ val BuiltInAgentSkills: List<BuiltInAgentSkill> = listOf(
 
             Remove the matching object from the array and write the file back when
             the user asks to forget something or corrects a stored fact.
-        """.trimIndent() + "
-",
+        """.trimIndent() + "\n",
     ),
 )
 
