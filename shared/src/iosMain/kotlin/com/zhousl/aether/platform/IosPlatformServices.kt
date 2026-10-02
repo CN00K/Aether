@@ -13,9 +13,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 class IosPlatformServices(
     internal val host: NativeRuntimeHost,
 ) : PlatformServices {
-    override suspend fun pickFile(imagesOnly: Boolean): PlatformPickedFile? =
+    override suspend fun pickFile(imagesOnly: Boolean, maximumBytes: Long): PlatformPickedFile? =
         suspendCancellableCoroutine { continuation ->
-            host.pickFile(imagesOnly, object : NativePickedFileListener {
+            host.pickFile(imagesOnly, maximumBytes, object : NativePickedFileListener {
                 override fun onSelected(name: String, mimeType: String, bytes: ByteArray) {
                     if (continuation.isActive) {
                         continuation.resume(PlatformPickedFile(name, mimeType, bytes))

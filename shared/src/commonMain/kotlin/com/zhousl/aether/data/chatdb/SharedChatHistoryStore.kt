@@ -289,12 +289,22 @@ class SharedChatHistoryStore(
                 )
             }.getOrNull()
         }
+        val storedTitle = session.title.trim()
+        // Self-heal sessions polluted by the draft-promotion bug: they carried
+        // hasCustomTitle=true with the default "New chat" placeholder. Re-derive
+        // the title from the first real user message instead of keeping it.
+        val isPollutedDefaultTitle = !session.hasCustomTitle || storedTitle == "New chat"
+        val effectiveTitle = if (isPollutedDefaultTitle) {
+            deriveSharedSessionMetadata(messages).first.takeIf { it != "New chat" } ?: storedTitle
+        } else {
+            storedTitle
+        }
         return PersistedChatSession(
             id = session.id,
-            title = session.title,
+            title = effectiveTitle,
             preview = session.preview,
             messages = messages,
-            hasCustomTitle = session.hasCustomTitle,
+            hasCustomTitle = session.hasCustomTitle && storedTitle != "New chat",
             // Skill and MCP activation is owned by Pi SessionManager; never restore legacy Room state.
             selectedSkillIds = emptyList(),
             activeSkills = emptyList(),
@@ -457,11 +467,15 @@ class SharedChatHistoryStore(
         hasCustomTitle: Boolean = false,
     ) = writeMutex.withLock {
         val metadata = deriveSharedSessionMetadata(messages)
+        // A non-custom "New chat" placeholder must never win over the derived
+        // title (first user message) — otherwise failed LLM title generation
+        // permanently pins sessions to the default name.
+        val effectiveTitleOverride = titleOverride?.trim()
+            ?.takeUnless { it.isBlank() || (!hasCustomTitle && it == "New chat") }
         dao.upsertSession(
             ChatSessionEntity(
                 id = sessionId,
-                title = titleOverride?.trim().takeUnless { it.isNullOrBlank() }
-                    ?: metadata.first,
+                title = effectiveTitleOverride ?: metadata.first,
                 preview = metadata.second,
                 hasCustomTitle = hasCustomTitle,
                 agentModeEnabled = false,

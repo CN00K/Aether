@@ -75,6 +75,8 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     private let maximumPickedDirectoryEntries = 4_096
     private let maximumPickedDirectoryEntryBytes = 16 * 1024 * 1024
     private let maximumPickedDirectoryBytes = 128 * 1024 * 1024
+    // Per-call cap for single-file picks; set by pickFile(imagesOnly:maximumBytes:).
+    private var filePickerMaximumBytes: Int = 16 * 1024 * 1024
 
     func refreshApkRepositoriesForCurrentNetwork() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -625,7 +627,7 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
         }
     }
 
-    func pickFile(imagesOnly: Bool, listener: NativePickedFileListener) {
+    func pickFile(imagesOnly: Bool, maximumBytes: Int64 = 16 * 1024 * 1024, listener: NativePickedFileListener) {
         onMain { [self] in
             guard !hasActiveDocumentPicker else {
                 listener.onError(message: "Another file picker is already open.")
@@ -635,6 +637,7 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
                 listener.onError(message: "Unable to present the file picker.")
                 return
             }
+            filePickerMaximumBytes = maximumBytes
             filePickerListener = listener
             let types: [UTType] = imagesOnly ? [.image] : [.item]
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
@@ -1229,10 +1232,9 @@ final class AetherRuntimeHost: NSObject, NativeRuntimeHost, UIDocumentPickerDele
     private func readPickedFile(_ url: URL) throws -> (name: String, mimeType: String, data: Data) {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        // Same cap as directory import: an oversized single pick would be
-        // loaded fully into memory and risk a jetsam kill on low-RAM devices.
+        // Cap comes from the caller: skill archives allow 32MB, other picks 16MB.
         let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? Int.max
-        guard fileSize <= maximumPickedDirectoryEntryBytes else {
+        guard fileSize <= filePickerMaximumBytes else {
             throw NSError(
                 domain: "com.baimoqilin.aether.file-picker",
                 code: 3,

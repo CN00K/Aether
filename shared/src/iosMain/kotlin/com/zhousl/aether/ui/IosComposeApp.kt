@@ -1876,7 +1876,6 @@ fun IosComposeApp(
             if (target.isDraft) {
                 target.id = "aether-session-${platformRandomUuid()}"
                 target.isDraft = false
-                target.hasCustomTitle = true
                 sessionStates[target.id] = target
                 if (currentSession === target) sessionId = target.id
                 sessions.add(0, SharedConversationSummary(target.id, target.title))
@@ -1917,6 +1916,16 @@ fun IosComposeApp(
                 }
             }
             target.input = ""
+            if (shouldGenerateTitle && target.title == "New chat" && value.trim().isNotBlank()) {
+                // Sync an immediate derived title into memory so the drawer never
+                // shows the default placeholder; LLM generation may still replace it.
+                val derivedTitle = value.trim().take(36)
+                target.title = derivedTitle
+                val summaryIndex = sessions.indexOfFirst { it.id == target.id }
+                if (summaryIndex >= 0) {
+                    sessions[summaryIndex] = sessions[summaryIndex].copy(title = derivedTitle)
+                }
+            }
             if (config == null || !config.isSharedProviderSetupValid()) {
                 val completedAt = platformCurrentTimeMillis()
                 target.messages += SharedChatMessage(
@@ -3154,7 +3163,10 @@ fun IosComposeApp(
                             nativeOperation = "skill_install"
                             nativeOperationError = ""
                             runSharedAppCatching {
-                                val picked = platformServices.pickFile(false) ?: return@runSharedAppCatching
+                                val picked = platformServices.pickFile(
+                                    false,
+                                    maximumBytes = PlatformServices.MaxPickedSkillArchiveBytes,
+                                ) ?: return@runSharedAppCatching
                                 val archive = "${runtime.workspaceRoot}/.skill-${platformRandomUuid()}.zip"
                                 runtime.fileSystem.write(archive, picked.bytes)
                                 try {
@@ -5629,63 +5641,34 @@ private fun SharedChatScreen(
     val fileSavedMessage = stringResource(Res.string.file_saved)
     val fileCouldNotSaveMessage = stringResource(Res.string.file_could_not_save)
     val aetherFileName = stringResource(Res.string.chat_aether_file)
-    val conversationContentKey = remember(
-        visibleMessages,
-        pendingTurns,
-        streamingStatus,
-        browserDisplayState.lastUpdatedMillis,
-    ) {
+    val conversationContentKey = remember(visibleMessages, streamingStatus) {
+        // O(1) tail-only key: the full-list variant rebuilt an O(total-chars)
+        // string on every streaming tick just to decide whether to auto-scroll.
+        val last = visibleMessages.lastOrNull()
         buildString {
-            visibleMessages.forEach { message ->
-                append(message.id)
-                append(':')
-                append(message.text.length)
-                append(':')
-                append(message.reasoningText.length)
-                append(':')
-                append(message.status)
-                append(':')
-                append(message.statusDetail)
-                append(':')
-                append(message.isStreaming)
-                message.tools.forEach { tool ->
-                    append('|')
-                    append(tool.id)
-                    append(':')
-                    append(tool.summary.length)
-                    append(':')
-                    append(tool.output.length)
-                    append(':')
-                    append(tool.isRunning)
-                }
-                message.responseBlocks.filterIsInstance<SharedAssistantResponseBlock.Reasoning>()
-                    .forEach { block ->
-                        append("|reasoning:")
-                        append(block.id)
-                        append(':')
-                        append(block.trace.rawText.length)
-                        append(':')
-                        append(block.trace.latestStatusText.length)
-                        append(':')
-                        append(block.trace.chunks.size)
-                        append(':')
-                        append(block.trace.toolInvocations.size)
-                        append(':')
-                        append(block.trace.completedAtMillis ?: 0L)
-                    }
-            }
-            pendingTurns.forEach { pending ->
-                append("|pending:")
-                append(pending.id)
-                append(':')
-                append(pending.text.length)
-                append(':')
-                append(pending.attachments.size)
-            }
-            append("|status:")
+            append(visibleMessages.size)
+            append(':')
             append(streamingStatus)
-            append("|browser:")
+            append(':')
             append(browserDisplayState.lastUpdatedMillis)
+            if (last != null) {
+                append(':')
+                append(last.id)
+                append(':')
+                append(last.text.length)
+                append(':')
+                append(last.reasoningText.length)
+                append(':')
+                append(last.status)
+                append(':')
+                append(last.statusDetail)
+                append(':')
+                append(last.isStreaming)
+                append(':')
+                append(last.tools.size)
+                append(':')
+                append(last.tools.lastOrNull()?.isRunning == true)
+            }
         }
     }
     val conversationScrollConnection = remember(listState, maxEdgeBouncePx) {
@@ -5846,7 +5829,11 @@ private fun SharedChatScreen(
                         item {
                             SharedAetherExtensionSlot(SharedExtensionSlotChatListStart)
                         }
-                        itemsIndexed(visibleMessages, key = { _, message -> message.id }) { index, rawMessage ->
+                        itemsIndexed(
+                            visibleMessages,
+                            key = { _, message -> message.id },
+                            contentType = { _, message -> message.displayKind },
+                        ) { index, rawMessage ->
                             if (rawMessage.displayKind == SharedMessageDisplayKind.CompactStatus) {
                                 SharedCompactStatusDivider(rawMessage.text)
                                 return@itemsIndexed

@@ -99,7 +99,19 @@ internal fun SharedMarkdownContent(
     fadeSpan: SharedMarkdownFadeSpan? = null,
 ) {
     var imagePreview by remember { mutableStateOf<SharedMarkdownImagePreview?>(null) }
-    val segments = remember(content) { parseSharedMarkdownPositionedSegments(content) }
+    // Throttled during streaming: full-content re-parsing on every chunk is
+    // O(n) per tick (O(n²) over a long reply). Only the rendered output for
+    // the throttled snapshot is delayed; final content always parses fully.
+    val parseContent = remember(content) { mutableStateOf(content) }
+    if (content != parseContent.value) {
+        LaunchedEffect(content) {
+            kotlinx.coroutines.delay(SharedMarkdownParseThrottleMillis)
+            parseContent.value = content
+        }
+    }
+    val segments = remember(parseContent.value) {
+        parseSharedMarkdownPositionedSegments(parseContent.value)
+    }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(14.dp),

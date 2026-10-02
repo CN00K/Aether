@@ -388,29 +388,12 @@ class SharedSkillManager(
         runtime.fileSystem.remove(staging, recursive = true)
         runtime.fileSystem.createDirectories(staging)
         try {
-            val archiveListing = bash(
-                "command -v unzip >/dev/null 2>&1 || apk add --no-cache unzip >/dev/null; " +
-                    "unzip -Z1 ${quote(archivePath)}",
-            )
-            check(!archiveListing.isError) {
-                archiveListing.errorText().ifBlank { "Unable to inspect Skill archive." }
-            }
-            val archiveEntries = archiveListing.stdout().lineSequence()
-                .map { it.trimEnd('/') }
-                .filter(String::isNotBlank)
-                .toList()
-            require(archiveEntries.size <= MaxSharedSkillBundleEntries) {
-                "Skill archive contains too many entries."
-            }
-            archiveEntries.forEach(::validateSharedSkillBundlePath)
-            val extract = bash(
-                "unzip -q ${quote(archivePath)} -d ${quote(staging)}",
-            )
-            check(!extract.isError) { extract.errorText().ifBlank { "Unable to install Skill archive." } }
-            val symlinks = bash("find ${quote(staging)} -type l -print -quit")
-            check(!symlinks.isError && symlinks.stdout().isBlank()) {
-                "Skill archive contains unsupported symbolic links."
-            }
+            // Extract with the bundled Node-based extractor: the Alpine runtime ships
+            // Node but not `unzip`, and installing packages at import time made
+            // first-use depend on network availability (silent apk failures and
+            // unbounded waits froze the settings UI). The extractor enforces the
+            // same entry/size limits and rejects symlinks and traversal paths.
+            extractSharedSkillArchive(archivePath, staging)
             val skillRoot = locateSharedSkillRoot(staging, normalizedSubpath)
             validateSharedSkillTree(skillRoot)
             val metadata = validateSharedSkillDocument(
@@ -432,6 +415,23 @@ class SharedSkillManager(
             return list().first { it.id == installedId }.copy(source = sourceLabel)
         } finally {
             runCatching { runtime.fileSystem.remove(staging, recursive = true) }
+        }
+    }
+
+    /**
+     * Extracts a Skill archive with the bundled Node-based extractor. The script
+     * is written into the runtime workspace and executed with the same Node
+     * binary the Pi bridge uses; entry count, entry size, and total size are
+     * enforced inside the script, and traversal/symlink entries are rejected.
+     */
+    private suspend fun extractSharedSkillArchive(archivePath: String, staging: String) {
+        val scriptPath = "$storageRoot/skill-archive-extractor.cjs"
+        runtime.fileSystem.write(scriptPath, SharedSkillArchiveExtractorSource.encodeToByteArray())
+        val result = bash(
+            "/usr/bin/node ${quote(scriptPath)} ${quote(archivePath)} ${quote(staging)}",
+        )
+        check(!result.isError) {
+            result.errorText().ifBlank { "Unable to extract the Skill archive." }
         }
     }
 

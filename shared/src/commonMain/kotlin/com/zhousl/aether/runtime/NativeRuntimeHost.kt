@@ -48,6 +48,7 @@ interface NativeRuntimeHost {
     fun remove(path: String, recursive: Boolean, listener: NativeUnitResultListener)
     fun bindHostDirectory(hostPath: String, guestPath: String, readOnly: Boolean, listener: NativeUnitResultListener)
     fun pickFile(imagesOnly: Boolean, listener: NativePickedFileListener)
+    fun pickFile(imagesOnly: Boolean, maximumBytes: Long, listener: NativePickedFileListener)
     fun pickFiles(imagesOnly: Boolean, listener: NativePickedFilesListener)
     fun pickDirectory(listener: NativePickedDirectoryListener)
     fun exportFile(name: String, mimeType: String, bytes: ByteArray, listener: NativeFileExportListener)

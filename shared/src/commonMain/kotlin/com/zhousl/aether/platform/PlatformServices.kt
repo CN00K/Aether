@@ -18,7 +18,7 @@ data class PlatformPickedDirectory(
 )
 
 interface PlatformServices {
-    suspend fun pickFile(imagesOnly: Boolean = false): PlatformPickedFile?
+    suspend fun pickFile(imagesOnly: Boolean = false, maximumBytes: Long = DefaultPickedFileBytes): PlatformPickedFile?
     suspend fun pickFiles(imagesOnly: Boolean = false): List<PlatformPickedFile> =
         listOfNotNull(pickFile(imagesOnly))
     suspend fun pickDirectory(): PlatformPickedDirectory? = null
@@ -37,6 +37,13 @@ interface PlatformServices {
         onCancelled: () -> Unit = {},
     ): Boolean = openUrl(url)
     fun terminateApplication(): Boolean = false
+
+    companion object {
+        /** Default cap for single-file picks (attachments, imports). */
+        const val DefaultPickedFileBytes: Long = 16L * 1024L * 1024L
+        /** Skill archives may legitimately be larger than attachment picks. */
+        const val MaxPickedSkillArchiveBytes: Long = 32L * 1024L * 1024L
+    }
 }
 
 object NoOpPlatformServices : PlatformServices {
