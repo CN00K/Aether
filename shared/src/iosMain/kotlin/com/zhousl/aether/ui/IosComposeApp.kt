@@ -136,9 +136,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -188,6 +190,7 @@ import com.zhousl.aether.platform.SharedApplicationLifecycle
 import com.zhousl.aether.platform.createBackgroundExecutionManager
 import com.zhousl.aether.platform.applyPlatformAppLanguage
 import com.zhousl.aether.platform.LocalReduceMotion
+import com.zhousl.aether.platform.platformHapticFeedback
 import com.zhousl.aether.platform.NativeSettingsCommandHandler
 import com.zhousl.aether.platform.NativeSettingsHost
 import com.zhousl.aether.data.LlmProviderConfig
@@ -825,6 +828,10 @@ private val SharedBranchBlurInEasing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
 private val SharedBranchBlurOutEasing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
 private const val SharedBranchBlurInDurationMillis = 180
 private const val SharedBranchBlurOutDurationMillis = 340
+// Peak blur radius for the session-branch transition. Kept small: full-screen
+// gaussian blur is expensive on A12-class GPUs (iPhone XS), and 2.8dp still
+// reads as a soft crossfade while costing a fraction of the GPU time.
+private const val SharedBranchBlurPeakDp = 2.8f
 private const val SharedTabletLayoutMinWidthDp = 700f
 private const val SharedCompactCommand = "/compact"
 private const val SharedCompactingStatus = "compacting"
@@ -880,7 +887,10 @@ fun IosComposeApp(
         val extensionStateStore = remember(runtime) { SharedExtensionStateStore(runtime) }
         val bridgeClient = remember(runtime, extensionStateStore) {
             SharedPiBridgeClient(
-                transport = RuntimePiBridgeTransport(runtime),
+                transport = RuntimePiBridgeTransport(
+                    runtime = runtime,
+                    nodeArguments = listOf("--max-old-space-size=1024"),
+                ),
                 extensionLoadOptionsProvider = extensionStateStore::load,
             )
         }
@@ -889,6 +899,7 @@ fun IosComposeApp(
                 transport = RuntimePiBridgeTransport(
                     runtime = runtime,
                     bridgePath = "/root/.aether/pi-bridge/extension-bridge.mjs",
+                    nodeArguments = listOf("--max-old-space-size=512"),
                 ),
                 extensionLoadOptionsProvider = extensionStateStore::load,
             )
@@ -5587,10 +5598,16 @@ private fun SharedChatScreen(
         if (composerBodyHeightPx > 0) composerBodyHeightPx.toDp() else 112.dp
     }
     val imeBottom = with(density) { WindowInsets.ime.getBottom(this).toDp() }
-    val sessionTotalTokens = messages.mapNotNull { it.usage }
-        .sumOf { usage -> if (usage.totalTokensAvailable) usage.totalTokens else 0L }
-        .takeIf { it > 0L }
-    val compactPercent = sharedCompactContextPercent(messages)
+    // Memoized: both walk the whole message list (token sums + char-length
+    // estimation over tools/attachments). During streaming the screen
+    // recomposes many times per second; without caching this is O(n) work
+    // on the main thread every tick.
+    val sessionTotalTokens = remember(messages) {
+        messages.mapNotNull { it.usage }
+            .sumOf { usage -> if (usage.totalTokensAvailable) usage.totalTokens else 0L }
+            .takeIf { it > 0L }
+    }
+    val compactPercent = remember(messages) { sharedCompactContextPercent(messages) }
     val compactSuggestionText = compactPercent?.let { percent ->
         stringResource(
             if (useTabletLayout) {
@@ -5700,7 +5717,7 @@ private fun SharedChatScreen(
     fun switchUserBranch(messageId: String, branchIndex: Int) {
         scope.launch {
             branchBlur.animateTo(
-                targetValue = 5.5f,
+                targetValue = SharedBranchBlurPeakDp,
                 animationSpec = tween(
                     durationMillis = SharedBranchBlurInDurationMillis,
                     easing = SharedBranchBlurInEasing,
@@ -5829,15 +5846,21 @@ private fun SharedChatScreen(
                                 SharedCompactStatusDivider(rawMessage.text)
                                 return@itemsIndexed
                             }
-                            val message = if (rawMessage.fromUser && rawMessage.userBranches.isNotEmpty()) {
-                                rawMessage.copy(
-                                    branchIndex = rawMessage.selectedUserBranchIndex,
-                                    branchCount = rawMessage.userBranches.size,
-                                )
+                            // Only rebuild the data class when branch fields
+                            // actually change; an unconditional copy() breaks
+                            // structural identity and forces full message
+                            // recomposition on every unrelated state tick.
+                            val wantsBranches = rawMessage.fromUser && rawMessage.userBranches.isNotEmpty()
+                            val desiredBranchIndex = if (wantsBranches) rawMessage.selectedUserBranchIndex else 0
+                            val desiredBranchCount = if (wantsBranches) rawMessage.userBranches.size else 1
+                            val message = if (rawMessage.branchIndex == desiredBranchIndex &&
+                                rawMessage.branchCount == desiredBranchCount
+                            ) {
+                                rawMessage
                             } else {
                                 rawMessage.copy(
-                                    branchIndex = 0,
-                                    branchCount = 1,
+                                    branchIndex = desiredBranchIndex,
+                                    branchCount = desiredBranchCount,
                                 )
                             }
                             val browserTools = message.sharedBrowserTools()
@@ -6279,13 +6302,24 @@ private fun SharedConversationModelSelector(
                     anchorHeightPx = coordinates.boundsInWindow().height.toInt()
                 },
         ) {
+            // Gradient halo instead of a live blur pass (cheaper on A12-class GPUs).
             Box(
                 modifier = Modifier
                     .matchParentSize()
                     .offset(y = 4.dp)
-                    .blur(14.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(ControlShadow),
+                    .drawBehind {
+                        val radius = size.minDimension / 2f
+                        drawRoundRect(
+                            brush = Brush.radialGradient(
+                                colors = listOf(ControlShadow, ControlShadow.copy(alpha = 0f)),
+                                center = Offset(size.width / 2f, size.height * 0.62f),
+                                radius = maxOf(size.width, size.height * 2.2f) / 2f,
+                            ),
+                            cornerRadius = CornerRadius(radius, radius),
+                            size = Size(size.width, size.height * 1.9f),
+                            topLeft = Offset(0f, -size.height * 0.45f),
+                        )
+                    },
             )
             Row(
                 modifier = Modifier
@@ -7162,6 +7196,7 @@ private fun SharedComposer(
                                                 if (isSending) {
                                                     followUpMenuOpen = true
                                                 } else {
+                                                    sharedComposerSendHaptic()
                                                     onSend(attachments.toList())
                                                     attachments.clear()
                                                     menuOpen = false
@@ -7302,6 +7337,11 @@ private fun SharedComposerSubmitButton(
             modifier = Modifier.size(21.dp),
         )
     }
+}
+
+/** Short confirmation tick when a message actually goes out. */
+private fun sharedComposerSendHaptic() {
+    platformHapticFeedback()
 }
 
 @Composable

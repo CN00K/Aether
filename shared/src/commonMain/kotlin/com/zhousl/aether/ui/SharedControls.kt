@@ -10,9 +10,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -38,12 +39,23 @@ fun HeaderCircleButton(
 ) {
     Box(modifier = modifier.size(size)) {
         if (showHalo) {
+            // Radial-gradient halo instead of a live blur pass: visually
+            // equivalent soft drop shadow at a fraction of the GPU cost on
+            // older devices (A12-class).
             Box(
                 modifier = Modifier.matchParentSize()
                     .offset(y = 4.dp)
-                    .blur(14.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
-                    .clip(CircleShape)
-                    .background(HeaderControlHalo),
+                    .drawBehind {
+                        val radius = size.minDimension / 2f
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(HeaderControlHalo, HeaderControlHalo.copy(alpha = 0f)),
+                                center = Offset(size.width / 2f, size.height * 0.62f),
+                                radius = radius * 1.35f,
+                            ),
+                            radius = radius * 1.35f,
+                        )
+                    },
             )
         }
         Box(

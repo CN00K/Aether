@@ -12,3 +12,9 @@ val LocalReduceMotion = compositionLocalOf { false }
 
 @Composable
 expect fun rememberPlatformAccessibilityPreferences(): PlatformAccessibilityPreferences
+
+/**
+ * Fires a short mechanical haptic tick (iOS: UIImpactFeedbackGenerator light).
+ * No-op on platforms without native haptics.
+ */
+expect fun platformHapticFeedback()
