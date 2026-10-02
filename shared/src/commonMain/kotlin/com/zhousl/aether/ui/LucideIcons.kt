@@ -597,7 +597,7 @@ object LucideIcons {
             if (_volume2 != null) return _volume2!!
 
             _volume2 = ImageVector.Builder(
-                name = volume-2,
+                name = "volume-2",
                 defaultWidth = 24.dp,
                 defaultHeight = 24.dp,
                 viewportWidth = 24f,
@@ -635,7 +635,7 @@ object LucideIcons {
             if (_volumeX != null) return _volumeX!!
 
             _volumeX = ImageVector.Builder(
-                name = volume-x,
+                name = "volume-x",
                 defaultWidth = 24.dp,
                 defaultHeight = 24.dp,
                 viewportWidth = 24f,

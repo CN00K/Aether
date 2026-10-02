@@ -2109,9 +2109,7 @@ fun IosComposeApp(
                             agentModeAddendum = listOf(
                                 agentMode.promptAddendum,
                                 com.zhousl.aether.data.SharedMemoryStore.buildPromptBlock(memoryFacts),
-                            ).filter(String::isNotBlank).joinToString("
-
-"),
+                            ).filter(String::isNotBlank).joinToString("\n\n"),
                         ),
                         reasoning = reasoningEffort,
                         timeoutMillis = sharedAppSettings.llmInactivityReconnectTimeoutSeconds
