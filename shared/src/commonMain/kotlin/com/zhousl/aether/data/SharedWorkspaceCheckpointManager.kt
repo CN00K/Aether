@@ -1,6 +1,11 @@
 package com.zhousl.aether.data
 
 import com.zhousl.aether.data.pi.SharedHostToolResult
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.Serializable
 
 /**
@@ -65,7 +70,7 @@ class SharedWorkspaceCheckpointManager(
                 "git show --stat --format='' HEAD 2>/dev/null | tail -1"
         )
         if (result.isError) return null
-        val stdout = result.payload()["stdout"]?.jsonPrimitive?.contentOrNull.orEmpty().trim()
+        val stdout = result.hostToolStdout().trim()
         val lines = stdout.lineSequence().filter(String::isNotBlank).toList()
         val hash = lines.getOrNull(0)?.substringBefore(' ')?.takeIf { it.length >= 7 } ?: return null
         val stat = lines.getOrNull(1).orEmpty()
@@ -99,11 +104,16 @@ class SharedWorkspaceCheckpointManager(
                 "git commit -q -m '${escape(checkpointCommitMessage(checkpoint.turnId + "-restore"))}' >/dev/null 2>&1; " +
                 "echo restored"
         )
-        return !result.isError &&
-            result.payload()["stdout"]?.jsonPrimitive?.contentOrNull.orEmpty().contains("restored")
+        return !result.isError && result.hostToolStdout().contains("restored")
     }
 
     fun list(): List<WorkspaceCheckpoint> = checkpoints.toList()
 
     private fun escape(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }
+
+private fun SharedHostToolResult.hostToolStdout(): String =
+    hostToolPayload(outputJson)["stdout"]?.jsonPrimitive?.contentOrNull.orEmpty()
+
+private fun hostToolPayload(outputJson: String): JsonObject =
+    Json.parseToJsonElement(outputJson).jsonObject

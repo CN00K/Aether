@@ -78,3 +78,15 @@ class SharedImageGenerationTools(
         }
     }
 }
+
+private fun SharedImageGenerationTools.toolError(
+    message: String,
+    errorKey: String = "error",
+): SharedHostToolResult = SharedHostToolResult(
+    outputJson = buildJsonObject {
+        put("ok", false)
+        put(errorKey, message)
+        put("errmsg", message)
+    }.toString(),
+    isError = true,
+)
