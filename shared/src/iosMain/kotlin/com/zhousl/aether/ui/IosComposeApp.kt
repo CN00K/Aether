@@ -6329,16 +6329,17 @@ private fun SharedConversationModelSelector(
                     .matchParentSize()
                     .offset(y = 4.dp)
                     .drawBehind {
-                        val radius = size.minDimension / 2f
+                        val boxSize = this.size
+                        val radius = boxSize.minDimension / 2f
                         drawRoundRect(
                             brush = Brush.radialGradient(
                                 colors = listOf(ControlShadow, ControlShadow.copy(alpha = 0f)),
-                                center = Offset(size.width / 2f, size.height * 0.62f),
-                                radius = maxOf(size.width, size.height * 2.2f) / 2f,
+                                center = Offset(boxSize.width / 2f, boxSize.height * 0.62f),
+                                radius = maxOf(boxSize.width, boxSize.height * 2.2f) / 2f,
                             ),
                             cornerRadius = CornerRadius(radius, radius),
-                            size = Size(size.width, size.height * 1.9f),
-                            topLeft = Offset(0f, -size.height * 0.45f),
+                            size = Size(boxSize.width, boxSize.height * 1.9f),
+                            topLeft = Offset(0f, -boxSize.height * 0.45f),
                         )
                     },
             )

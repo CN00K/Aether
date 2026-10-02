@@ -46,11 +46,14 @@ fun HeaderCircleButton(
                 modifier = Modifier.matchParentSize()
                     .offset(y = 4.dp)
                     .drawBehind {
-                        val radius = size.minDimension / 2f
+                        // this.size is the DrawScope size; the function's
+                        // `size` parameter (a Dp) would otherwise shadow it.
+                        val boxSize = this.size
+                        val radius = boxSize.minDimension / 2f
                         drawCircle(
                             brush = Brush.radialGradient(
                                 colors = listOf(HeaderControlHalo, HeaderControlHalo.copy(alpha = 0f)),
-                                center = Offset(size.width / 2f, size.height * 0.62f),
+                                center = Offset(boxSize.width / 2f, boxSize.height * 0.62f),
                                 radius = radius * 1.35f,
                             ),
                             radius = radius * 1.35f,
