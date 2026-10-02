@@ -1670,6 +1670,11 @@ private final class AetherBackgroundExecutionCoordinator {
             let identifier = UUID().uuidString
             leases[identifier] = Lease(name: name, onExpired: onExpired, detail: "Starting")
             pendingCompletionSuccess = nil
+            // iOS < 26 has no BGContinuedProcessingTask; the silent-audio
+            // keep-alive is the only reliable way to avoid suspension.
+            if #unavailable(iOS 26.0, *) {
+                BackgroundAudioKeepAlive.shared.start()
+            }
             ensureBriefBackgroundTask(name: name)
             if #available(iOS 26.0, *) {
                 ensureContinuedProcessingTask(name: name)
@@ -1856,6 +1861,9 @@ private final class AetherBackgroundExecutionCoordinator {
         progressActivityCount = 0
         lastProgressUpdate = .distantPast
         lastProgressAdvance = .distantPast
+        if #unavailable(iOS 26.0, *) {
+            BackgroundAudioKeepAlive.shared.stop()
+        }
         endBriefBackgroundTask()
     }
 

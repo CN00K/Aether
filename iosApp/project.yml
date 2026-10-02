@@ -72,6 +72,7 @@ targets:
           - $(PRODUCT_BUNDLE_IDENTIFIER).agent.*
         UIBackgroundModes:
           - processing
+          - audio
         CADisableMinimumFrameDurationOnPhone: true
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)

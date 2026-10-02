@@ -1477,7 +1477,10 @@ fun IosComposeApp(
                     ?: initialSession
             }
             restored.selectedModelKey = resolveSharedConversationModelKey(
-                selectedModelKey = if (com.zhousl.aether.data.ShowcaseCatalog.isSession(restored.id)) restored.selectedModelKey else "",
+                // Keep the session's persisted model selection: a non-showcase
+                // session that stored a model at exit must reopen with it
+                // instead of falling back to the global default.
+                selectedModelKey = restored.selectedModelKey,
                 defaultChatModelKey = sharedAppSettings.defaultChatModelKey,
                 options = providerConfigs.availableModelOptions(),
             )
