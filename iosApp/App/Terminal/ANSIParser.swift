@@ -328,9 +328,6 @@ final class ANSIParser {
         case 0x07: // BEL — string terminator
             action(.oscDispatch(command: oscCommand, payload: oscPayload))
             state = .ground
-        case 0x5C: // \ — bare backslash inside the command part is not valid; treat as terminator
-            action(.oscDispatch(command: oscCommand, payload: oscPayload))
-            state = .ground
         case 0x1B: // ESC — possible ST (ESC \)
             // We handle this by peeking; for simplicity, just dispatch
             action(.oscDispatch(command: oscCommand, payload: oscPayload))

@@ -32,12 +32,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -48,7 +45,6 @@ import com.zhousl.aether.ui.theme.AetherOnSurface
 import com.zhousl.aether.ui.theme.AetherOnSurfaceVariant
 import com.zhousl.aether.platform.LocalReduceMotion
 import com.zhousl.aether.ui.theme.AetherSurface
-import kotlin.math.max
 
 private val ConversationControlShadow = Color(0x14000000)
 private val ConversationControlHalo = Color(0x18000000)
@@ -108,23 +104,12 @@ fun AetherSimpleModelSelector(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxWidth().height(38.dp)) {
-        // Gradient halo instead of a live blur pass (cheaper on A12-class GPUs).
         Box(
             modifier = Modifier.matchParentSize()
                 .offset(y = 4.dp)
-                .drawBehind {
-                    val radius = size.minDimension / 2f
-                    drawRoundRect(
-                        brush = Brush.radialGradient(
-                            colors = listOf(ConversationControlHalo, ConversationControlHalo.copy(alpha = 0f)),
-                            center = Offset(size.width / 2f, size.height * 0.62f),
-                            radius = maxOf(size.width, size.height * 2.2f) / 2f,
-                        ),
-                        cornerRadius = CornerRadius(radius, radius),
-                        size = Size(size.width, size.height * 1.9f),
-                        topLeft = Offset(0f, -size.height * 0.45f),
-                    )
-                },
+                .blur(14.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                .clip(RoundedCornerShape(999.dp))
+                .background(ConversationControlHalo),
         )
         Row(
             modifier = Modifier.matchParentSize()

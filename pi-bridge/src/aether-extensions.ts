@@ -1030,7 +1030,7 @@ function createApi(
       );
     },
     invalidate,
-    notify(message, level = "info" as "info" | "warning" | "error") {
+    notify(message, level = "info") {
       transport.notify(message, level);
     },
   };

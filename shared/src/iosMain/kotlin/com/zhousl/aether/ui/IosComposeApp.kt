@@ -136,11 +136,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -828,10 +826,6 @@ private val SharedBranchBlurInEasing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
 private val SharedBranchBlurOutEasing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
 private const val SharedBranchBlurInDurationMillis = 180
 private const val SharedBranchBlurOutDurationMillis = 340
-// Peak blur radius for the session-branch transition. Kept small: full-screen
-// gaussian blur is expensive on A12-class GPUs (iPhone XS), and 2.8dp still
-// reads as a soft crossfade while costing a fraction of the GPU time.
-private const val SharedBranchBlurPeakDp = 2.8f
 private const val SharedTabletLayoutMinWidthDp = 700f
 private const val SharedCompactCommand = "/compact"
 private const val SharedCompactingStatus = "compacting"
@@ -3623,8 +3617,10 @@ fun IosComposeApp(
                             state?.hasUnviewedCompletion == true -> SharedConversationIndicator.UnviewedComplete
                             else -> SharedConversationIndicator.None
                         }
-                        // Preserve structural equality: an unconditional copy()
-                        // would rebuild every drawer row on each streaming tick.
+                        // Reuse the instance when nothing changed: the summary is
+                        // unstable (List fields), so Compose compares it by
+                        // identity and a fresh copy() would recompose every
+                        // drawer row on each streaming tick.
                         if (summary.title == desiredTitle && summary.indicator == desiredIndicator) {
                             summary
                         } else {
@@ -5603,16 +5599,20 @@ private fun SharedChatScreen(
         if (composerBodyHeightPx > 0) composerBodyHeightPx.toDp() else 112.dp
     }
     val imeBottom = with(density) { WindowInsets.ime.getBottom(this).toDp() }
-    // Memoized: both walk the whole message list (token sums + char-length
-    // estimation over tools/attachments). During streaming the screen
-    // recomposes many times per second; without caching this is O(n) work
-    // on the main thread every tick.
-    val sessionTotalTokens = remember(messages) {
-        messages.mapNotNull { it.usage }
-            .sumOf { usage -> if (usage.totalTokensAvailable) usage.totalTokens else 0L }
-            .takeIf { it > 0L }
+    // Both walk the whole message list. `messages` is the session's
+    // SnapshotStateList, whose reference never changes, so a plain
+    // remember(messages) would freeze these values; derivedStateOf re-runs
+    // them only when the list contents change, not on every recomposition.
+    val sessionTotalTokens by remember(messages) {
+        derivedStateOf {
+            messages.mapNotNull { it.usage }
+                .sumOf { usage -> if (usage.totalTokensAvailable) usage.totalTokens else 0L }
+                .takeIf { it > 0L }
+        }
     }
-    val compactPercent = remember(messages) { sharedCompactContextPercent(messages) }
+    val compactPercent by remember(messages) {
+        derivedStateOf { sharedCompactContextPercent(messages) }
+    }
     val compactSuggestionText = compactPercent?.let { percent ->
         stringResource(
             if (useTabletLayout) {
@@ -5722,7 +5722,7 @@ private fun SharedChatScreen(
     fun switchUserBranch(messageId: String, branchIndex: Int) {
         scope.launch {
             branchBlur.animateTo(
-                targetValue = SharedBranchBlurPeakDp,
+                targetValue = 5.5f,
                 animationSpec = tween(
                     durationMillis = SharedBranchBlurInDurationMillis,
                     easing = SharedBranchBlurInEasing,
@@ -5851,10 +5851,11 @@ private fun SharedChatScreen(
                                 SharedCompactStatusDivider(rawMessage.text)
                                 return@itemsIndexed
                             }
-                            // Only rebuild the data class when branch fields
-                            // actually change; an unconditional copy() breaks
-                            // structural identity and forces full message
-                            // recomposition on every unrelated state tick.
+                            // Only copy when the branch fields actually change:
+                            // SharedChatMessage is unstable, so Compose skips the
+                            // item only when it gets the same instance, and an
+                            // unconditional copy() recomposed every visible
+                            // message (Markdown included) on each state tick.
                             val wantsBranches = rawMessage.fromUser && rawMessage.userBranches.isNotEmpty()
                             val desiredBranchIndex = if (wantsBranches) rawMessage.selectedUserBranchIndex else 0
                             val desiredBranchCount = if (wantsBranches) rawMessage.userBranches.size else 1
@@ -6061,11 +6062,7 @@ private fun SharedChatScreen(
                     chromeAvailable = chromeAvailable,
                     chromeEnabled = chromeEnabled,
                     onChromeSelected = onChromeSelected,
-                    editingMessage = remember(messages, editingMessageId) {
-                        editingMessageId.takeIf(String::isNotBlank)?.let { id ->
-                            messages.firstOrNull { it.id == id }
-                        }
-                    },
+                    editingMessage = messages.firstOrNull { it.id == editingMessageId },
                     showStarterPromptHint = showStarterPromptHint,
                     onDismissStarterPromptHint = onDismissStarterPromptHint,
                     onCancelEdit = onCancelEdit,
@@ -6323,24 +6320,13 @@ private fun SharedConversationModelSelector(
                     anchorHeightPx = coordinates.boundsInWindow().height.toInt()
                 },
         ) {
-            // Gradient halo instead of a live blur pass (cheaper on A12-class GPUs).
             Box(
                 modifier = Modifier
                     .matchParentSize()
                     .offset(y = 4.dp)
-                    .drawBehind {
-                        val radius = size.minDimension / 2f
-                        drawRoundRect(
-                            brush = Brush.radialGradient(
-                                colors = listOf(ControlShadow, ControlShadow.copy(alpha = 0f)),
-                                center = Offset(size.width / 2f, size.height * 0.62f),
-                                radius = maxOf(size.width, size.height * 2.2f) / 2f,
-                            ),
-                            cornerRadius = CornerRadius(radius, radius),
-                            size = Size(size.width, size.height * 1.9f),
-                            topLeft = Offset(0f, -size.height * 0.45f),
-                        )
-                    },
+                    .blur(14.dp, edgeTreatment = BlurredEdgeTreatment.Unbounded)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(ControlShadow),
             )
             Row(
                 modifier = Modifier
